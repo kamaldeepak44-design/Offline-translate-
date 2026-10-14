@@ -1,0 +1,6 @@
+{
+  "name": "Offline Tamil Comic Reader",
+  "description": "Read comics, manga, and PDFs offline with on-device OCR, English to Tamil translation, and Tamil Text-to-Speech narration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
