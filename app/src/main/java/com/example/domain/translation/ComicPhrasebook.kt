@@ -835,10 +835,13 @@ object ComicPhrasebook {
     }
 
     private fun translateWordsWithTransliteration(text: String): String {
-        val words = text.split(Regex("\\s+"))
+        val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return ""
 
-        val translatedWords = words.map { rawWord ->
+        val lowerWords = words.map { it.lowercase(Locale.ROOT).trimEnd('.', ',', '!', '?', ';', ':') }
+        val reorderedWords = reorderToTamilSOV(words, lowerWords)
+
+        val translatedWords = reorderedWords.map { rawWord ->
             val cleanWord = rawWord.lowercase(Locale.ROOT).trimEnd('.', ',', '!', '?', ';', ':')
             val punct = rawWord.filter { it in ".,!?;:" }
             val tamilMeaning = TamilDictionaryPack.getWordMeaning(cleanWord) ?: WORD_MAP[cleanWord]
@@ -855,6 +858,62 @@ object ComicPhrasebook {
         }
 
         return translatedWords.joinToString(" ")
+    }
+
+    private fun reorderToTamilSOV(words: List<String>, lowerWords: List<String>): List<String> {
+        if (words.size < 3) return words
+
+        val verbIndices = lowerWords.mapIndexedNotNull { idx, w ->
+            if (idx > 0 && idx < lowerWords.size - 1 && isLikelyVerbOrAux(w)) idx else null
+        }
+
+        if (verbIndices.isNotEmpty()) {
+            val vIdx = verbIndices.first()
+            val verbPhrase = mutableListOf<String>()
+            var endV = vIdx
+            while (endV < lowerWords.size - 1 && isLikelyVerbOrAux(lowerWords[endV])) {
+                verbPhrase.add(words[endV])
+                endV++
+            }
+
+            if (endV < lowerWords.size && verbPhrase.isNotEmpty()) {
+                val subjectPart = words.subList(0, vIdx)
+                val objectPart = words.subList(endV, words.size)
+                val reordered = ArrayList<String>(words.size)
+                reordered.addAll(subjectPart)
+                reordered.addAll(objectPart)
+                val lastObj = reordered.last()
+                val punct = lastObj.filter { it in ".,!?;:" }
+                if (punct.isNotEmpty()) {
+                    reordered[reordered.size - 1] = lastObj.trimEnd('.', ',', '!', '?', ';', ':')
+                }
+                for (i in verbPhrase.indices) {
+                    if (i == verbPhrase.size - 1 && punct.isNotEmpty()) {
+                        reordered.add(verbPhrase[i].trimEnd('.', ',', '!', '?', ';', ':') + punct)
+                    } else {
+                        reordered.add(verbPhrase[i].trimEnd('.', ',', '!', '?', ';', ':'))
+                    }
+                }
+                return reordered
+            }
+        }
+
+        return words
+    }
+
+    private fun isLikelyVerbOrAux(word: String): Boolean {
+        val verbs = setOf(
+            "is", "are", "was", "were", "am", "will", "can", "could", "must", "should", "would",
+            "have", "has", "had", "protect", "protects", "protecting", "save", "saves", "saving",
+            "defeat", "defeats", "defeating", "fight", "fights", "fighting", "kill", "kills", "killing",
+            "destroy", "destroys", "destroying", "attack", "attacks", "attacking", "see", "sees", "seeing",
+            "hear", "hears", "hearing", "know", "knows", "knowing", "find", "finds", "finding",
+            "take", "takes", "taking", "give", "gives", "giving", "make", "makes", "making",
+            "break", "breaks", "breaking", "want", "wants", "wanting", "need", "needs", "needing",
+            "hold", "holds", "holding", "help", "helps", "helping", "stop", "stops", "stopping",
+            "run", "runs", "running", "leave", "leaves", "leaving", "enter", "enters", "entering"
+        )
+        return word in verbs || word.endsWith("ing") || word.endsWith("ed")
     }
 
     fun transliterateEnglishToTamil(word: String): String {

@@ -56,12 +56,18 @@ class TamilSpeechEngine(
     private fun extractViewModelRef(lambda: Any?) {
         if (lambda == null) return
         try {
-            val field = lambda.javaClass.getDeclaredField("f$0")
-            field.isAccessible = true
-            val vm = field.get(lambda)
-            if (vm != null) {
-                readerViewModelRef = vm
-                activeViewModel = vm
+            val clazz = lambda.javaClass
+            for (field in clazz.declaredFields) {
+                try {
+                    field.isAccessible = true
+                    val obj = field.get(lambda)
+                    if (obj != null && (obj.javaClass.name.contains("ComicReaderViewModel") || obj.javaClass.simpleName.contains("ViewModel"))) {
+                        readerViewModelRef = obj
+                        activeViewModel = obj
+                        Log.i(TAG, "extractViewModelRef: found ${obj.javaClass.name} via ${field.name}")
+                        return
+                    }
+                } catch (_: Throwable) {}
             }
         } catch (e: Throwable) {
             Log.d(TAG, "extractViewModelRef: ${e.message}")
@@ -155,14 +161,12 @@ class TamilSpeechEngine(
         if (currentIndex < queue.size - 1 && queue.isNotEmpty()) {
             currentIndex++
             _currentSpeechIndex.value = currentIndex
-            if (_playbackState.value != ReaderPlaybackState.PLAYING) {
-                _currentBubbleId.value = queue[currentIndex].id
-                return
-            } else {
-                ttsManager.stop()
-                speakCurrentItem()
-                return
-            }
+            val bubble = queue[currentIndex]
+            _currentBubbleId.value = bubble.id
+            onBubbleStarted?.invoke(bubble.id)
+            ttsManager.stop()
+            speakCurrentItem()
+            return
         }
 
         val wasPlaying = _playbackState.value == ReaderPlaybackState.PLAYING
@@ -185,14 +189,12 @@ class TamilSpeechEngine(
         if (currentIndex > 0 && queue.isNotEmpty()) {
             currentIndex--
             _currentSpeechIndex.value = currentIndex
-            if (_playbackState.value != ReaderPlaybackState.PLAYING) {
-                _currentBubbleId.value = queue[currentIndex].id
-                return
-            } else {
-                ttsManager.stop()
-                speakCurrentItem()
-                return
-            }
+            val bubble = queue[currentIndex]
+            _currentBubbleId.value = bubble.id
+            onBubbleStarted?.invoke(bubble.id)
+            ttsManager.stop()
+            speakCurrentItem()
+            return
         }
 
         val wasPlaying = _playbackState.value == ReaderPlaybackState.PLAYING
@@ -210,46 +212,50 @@ class TamilSpeechEngine(
     }
 
     private fun navigateToNextPage(vm: Any, autoStartSpeech: Boolean = false) {
-        try {
-            val uiStateMethod = vm.javaClass.getMethod("getUiState")
-            val stateFlow = uiStateMethod.invoke(vm) as StateFlow<*>
-            val state = stateFlow.value ?: return
-            val currentPage = state.javaClass.getMethod("getCurrentPageIndex").invoke(state) as Int
-            val totalPages = state.javaClass.getMethod("getTotalPages").invoke(state) as Int
+        scope.launch(Dispatchers.Main) {
+            try {
+                val uiStateMethod = vm.javaClass.getMethod("getUiState")
+                val stateFlow = uiStateMethod.invoke(vm) as StateFlow<*>
+                val state = stateFlow.value ?: return@launch
+                val currentPage = state.javaClass.getMethod("getCurrentPageIndex").invoke(state) as Int
+                val totalPages = state.javaClass.getMethod("getTotalPages").invoke(state) as Int
 
-            if (currentPage < totalPages - 1) {
-                val loadPageMethod = vm.javaClass.getMethod(
-                    "loadPage",
-                    Int::class.javaPrimitiveType,
-                    Boolean::class.javaPrimitiveType
-                )
-                loadPageMethod.invoke(vm, currentPage + 1, autoStartSpeech)
-            } else {
+                if (currentPage < totalPages - 1) {
+                    val loadPageMethod = vm.javaClass.getMethod(
+                        "loadPage",
+                        Int::class.javaPrimitiveType,
+                        Boolean::class.javaPrimitiveType
+                    )
+                    loadPageMethod.invoke(vm, currentPage + 1, autoStartSpeech)
+                } else {
+                    onPageCompleted?.invoke()
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "navigateToNextPage error", e)
                 onPageCompleted?.invoke()
             }
-        } catch (e: Throwable) {
-            Log.e(TAG, "navigateToNextPage error", e)
-            onPageCompleted?.invoke()
         }
     }
 
     private fun navigateToPreviousPage(vm: Any, autoStartSpeech: Boolean = false) {
-        try {
-            val uiStateMethod = vm.javaClass.getMethod("getUiState")
-            val stateFlow = uiStateMethod.invoke(vm) as StateFlow<*>
-            val state = stateFlow.value ?: return
-            val currentPage = state.javaClass.getMethod("getCurrentPageIndex").invoke(state) as Int
+        scope.launch(Dispatchers.Main) {
+            try {
+                val uiStateMethod = vm.javaClass.getMethod("getUiState")
+                val stateFlow = uiStateMethod.invoke(vm) as StateFlow<*>
+                val state = stateFlow.value ?: return@launch
+                val currentPage = state.javaClass.getMethod("getCurrentPageIndex").invoke(state) as Int
 
-            if (currentPage > 0) {
-                val loadPageMethod = vm.javaClass.getMethod(
-                    "loadPage",
-                    Int::class.javaPrimitiveType,
-                    Boolean::class.javaPrimitiveType
-                )
-                loadPageMethod.invoke(vm, currentPage - 1, autoStartSpeech)
+                if (currentPage > 0) {
+                    val loadPageMethod = vm.javaClass.getMethod(
+                        "loadPage",
+                        Int::class.javaPrimitiveType,
+                        Boolean::class.javaPrimitiveType
+                    )
+                    loadPageMethod.invoke(vm, currentPage - 1, autoStartSpeech)
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "navigateToPreviousPage error", e)
             }
-        } catch (e: Throwable) {
-            Log.e(TAG, "navigateToPreviousPage error", e)
         }
     }
 

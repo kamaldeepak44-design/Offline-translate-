@@ -3,6 +3,7 @@ package com.example.domain.translation
 import com.example.data.model.TamilSpeechStyle
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -100,5 +101,32 @@ class TamilTranslatorTest {
 
         val r3 = TamilTranslator.translate("YOU CAN'T BELIEVE IT, CAN YOU?")
         assertTrue("Must have Tamil characters", r3.any { it in '\u0B80'..'\u0BFF' })
+    }
+
+    @Test
+    fun testExpandedTranslationPack() = runBlocking {
+        val r1 = TamilTranslator.translate("We will defeat you!")
+        assertTrue(r1.contains("தோற்கடிப்போம்") || r1.contains("தோற்கடிப்பேன்") || r1.contains("தோற்கடிக்க") || r1.contains("வெற்றி"))
+
+        val r2 = TamilTranslator.translate("I am ready!")
+        assertEquals("நான் தயாராக இருக்கிறேன்!", r2)
+
+        val r3 = TamilTranslator.translate("Where are you going?")
+        assertTrue(r3.contains("போகிறாய்"))
+    }
+
+    @Test
+    fun testLemmatizedWords() {
+        val meaning1 = TamilDictionaryPack.getWordMeaning("hunters")
+        assertNotNull(meaning1)
+        assertTrue(meaning1!!.contains("வேட்டைக்காரர்"))
+
+        val meaning2 = TamilDictionaryPack.getWordMeaning("dragons")
+        assertNotNull(meaning2)
+        assertTrue(meaning2!!.contains("டிராகன்"))
+
+        val meaning3 = TamilDictionaryPack.getWordMeaning("quickly")
+        assertNotNull(meaning3)
+        assertTrue(meaning3!!.contains("வேகமாக"))
     }
 }
