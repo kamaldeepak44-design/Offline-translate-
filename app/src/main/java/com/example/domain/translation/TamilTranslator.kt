@@ -106,22 +106,11 @@ object TamilTranslator {
     fun initialize(context: Context) {
         appContext = context.applicationContext
 
-        // Kick off background model download if online
+        // Check model status via RemoteModelManager without prematurely loading native JNI translator
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val downloaded = isModelDownloaded()
-                if (!downloaded) {
-                    val conditions = DownloadConditions.Builder().build()
-                    translator.downloadModelIfNeeded(conditions)
-                        .addOnSuccessListener {
-                            isDownloadedCache = true
-                            _modelStatus.value = TranslationModelStatus.INSTALLED
-                            Log.i(TAG, "ML Kit Tamil model background download ready")
-                        }
-                        .addOnFailureListener {
-                            Log.d(TAG, "ML Kit model will download when online")
-                        }
-                }
+                _modelStatus.value = if (downloaded) TranslationModelStatus.INSTALLED else TranslationModelStatus.NOT_INSTALLED
             } catch (e: Exception) {
                 Log.d(TAG, "ML Kit download check: ${e.message}")
             }
@@ -204,19 +193,25 @@ object TamilTranslator {
     suspend fun downloadModel(): Result<Unit> = withContext(Dispatchers.IO) {
         _modelStatus.value = TranslationModelStatus.DOWNLOADING
         suspendCancellableCoroutine { continuation ->
-            val conditions = DownloadConditions.Builder().build()
-            translator.downloadModelIfNeeded(conditions)
-                .addOnSuccessListener {
-                    isDownloadedCache = true
-                    _modelStatus.value = TranslationModelStatus.INSTALLED
-                    continuation.resume(Result.success(Unit))
-                }
-                .addOnFailureListener { ex ->
-                    isDownloadedCache = false
-                    _modelStatus.value = TranslationModelStatus.ERROR
-                    Log.e(TAG, "Failed to download Tamil translation model", ex)
-                    continuation.resume(Result.failure(ex))
-                }
+            try {
+                val conditions = DownloadConditions.Builder().build()
+                modelManager.download(tamilModel, conditions)
+                    .addOnSuccessListener {
+                        isDownloadedCache = true
+                        _modelStatus.value = TranslationModelStatus.INSTALLED
+                        continuation.resume(Result.success(Unit))
+                    }
+                    .addOnFailureListener { ex ->
+                        isDownloadedCache = false
+                        _modelStatus.value = TranslationModelStatus.ERROR
+                        Log.e(TAG, "Failed to download Tamil translation model", ex)
+                        continuation.resume(Result.failure(ex))
+                    }
+            } catch (e: Throwable) {
+                isDownloadedCache = false
+                _modelStatus.value = TranslationModelStatus.ERROR
+                continuation.resume(Result.failure(e))
+            }
         }
     }
 
@@ -308,14 +303,9 @@ object TamilTranslator {
             return@withContext TranslationResult(full, isSuccess = true, source = TranslationSource.PHRASEBOOK)
         }
 
-        // 6. Check ML Kit offline translation if physically present or downloaded
+        // 6. Check ML Kit offline translation only if model is physically present and confirmed downloaded
         val ctx = appContext
-        val modelReady = if (ctx != null && (isModelPhysicallyPresent(ctx) || isDownloadedCache == true)) {
-            val downloaded = isDownloadedCache ?: isModelDownloaded()
-            downloaded
-        } else {
-            false
-        }
+        val modelReady = ctx != null && isDownloadedCache == true && isModelPhysicallyPresent(ctx)
 
         if (modelReady) {
             try {
